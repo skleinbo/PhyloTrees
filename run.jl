@@ -40,32 +40,32 @@ begin
 
   ax = Axis(fig[1,1], xscale=log10, yscale=log10,
     xlabel="A", ylabel="C/A")
-  p1 = Makie.scatter!(ax, Aunb, Cunb./Aunb,
-    label="Unbalanced", markersize=10, marker=:circle
-    )
   ax2 = Axis(fig[1,2], xscale=log10, yscale=identity,
     xlabel="A", ylabel="C/A")
   ylims!(ax2, 1e0,30)
   xlims!(ax2, 1e0,1e4)
-  p2 = Makie.scatter!(ax2, Ab, Cb./Ab,
+  
+  p11 = Makie.scatter!(ax, Aunb, Cunb./Aunb,
+    label="Unbalanced", markersize=10, marker=:circle
+  )
+  p21 = Makie.scatter!(ax2, Ab, Cb./Ab,
     label="Balanced", markersize=10, marker=:star5,
     color=colors[3]
-    )
-  # Makie.scatter!(ax, Amoran, Cmoran./Amoran, label="Moran") 
-  p3 = Makie.scatter!(ax2, dfbd.a, dfbd.covera,
-    label="B/D", markersize=10, marker=:rect, color=(colors[1], 0.8))
-  p32 = Makie.scatter!(ax2, dfcoal.a, dfcoal.covera,
-    label="coalescent", markersize=10, marker=:rect,color=(colors[2], 0.5))
+  )
 
-  # plot!(x->2*x^1.36, label="x^1.36")
+  p22 = Makie.scatter!(ax2, dfbd.a, dfbd.covera,
+    label="B/D", markersize=10, marker=:rect, color=(colors[1], 0.8))
+  p23 = Makie.scatter!(ax2, dfcoal.a, dfcoal.covera,
+    label="coalescent", markersize=10, marker=:rect,color=(colors[2], 0.5))
+  
+  
   η = 1.50
-  p4 = Makie.lines!(ax, 1..100,A->A/4+1-1/4/A, label="A")
-  p5 = Makie.lines!(ax, 1..1e4,x->x^(η-1), label="A^$(η-1)", color=:black, linestyle=:dash)
-  p6 = Makie.lines!(ax2, 1..1e4, x->x^0.5, label="A^0.5", color=:black, linestyle=:dash)
-  p6 = Makie.lines!(ax2, 1..1e4, A->1/A+(A+1)/A*(log(A+1)/log(2)-1), label="A logA")
-  # br = fig[2,1:2] = GridLayout()
-  # linkyaxes!(ax,ax2)
-  Legend(fig[2,1], ax, orientation=:horizontal, tellheight=true)
+  p12 = Makie.lines!(ax,  1..1e2, A->A/4+1-1/4/A, label="A")
+  p13 = Makie.lines!(ax,  1..1e4, A->A^(η-1), label="A^$(η-1)", color=:black, linestyle=:dash)
+  p24 = Makie.lines!(ax2, 1..1e4, A->A^0.5, label="A^0.5", color=:black, linestyle=:dash)
+  p25 = Makie.lines!(ax2, 1..1e4, A->1/A+(A+1)/A*(log(A+1)/log(2)-1), label="A logA")
+  
+  Legend(fig[2,1], ax,  orientation=:horizontal, tellheight=true)
   Legend(fig[2,2], ax2, orientation=:horizontal, tellheight=true, tellwidth=true)
   colsize!(fig.layout, 1, Relative(1/2))
   colsize!(fig.layout, 2, Relative(1/2))
