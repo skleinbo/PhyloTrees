@@ -373,3 +373,38 @@ function to_mean_dataframe(A, C)
     df = DataFrame(; A, C)
     combine(groupby(df, :A), :A => mean => :a, [:A, :C] => ((a, c) -> mean(c ./ a)) => :covera)
 end
+
+"""
+Simulate a "fluctating coalescent" process for n genes.
+
+Return a directed graph with edges pointing towards the root.
+"""
+function fluctuating_coalescent(n, v=randn(n).^2)
+    P = SimpleDiGraph(n)
+    V = collect(1:n) # start with n vertices
+    while length(V) > 1
+        i, j = sample(eachindex(V), Weights(v), 2, replace=false) #sample two distinct vertices to coalesce
+        add_vertex!(P) # introduce ancestral node
+        newv = nv(P) # index of newly added node
+        add_edge!(P, V[i], newv) # connect samples nodes to parental node
+        add_edge!(P, V[j], newv)
+
+        push!(V, newv) # mark new node as active
+        deleteat!(V, sort([i, j])) # remove coalesced nodes from list of "active" node
+
+        push!(v, max(v[i],v[j]))
+        deleteat!(v, sort([i, j])) # remove coalesced nodes from list of "active" node
+        
+    end
+
+    root = nv(P)
+    M = adjacency_matrix(P)
+    tmp = M[1, :]
+    M[1, :] .= M[root, :]
+    M[root, :] .= tmp
+    tmp = M[:, 1]
+    M[:, 1] .= M[:, root]
+    M[:, root] .= tmp
+
+    return SimpleDiGraph(M)
+end
