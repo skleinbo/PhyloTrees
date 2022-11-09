@@ -6,10 +6,11 @@ d = 0.975
 ## Aggregate A,C over multiple coalescent runs.
 Acoal = Int[]
 Ccoal = Int[]
-@time for _ in 1:100
+@time for _ in 1:10
   Pcoal = coalescent(n)
-  append!(Acoal, A(Pcoal))
-  append!(Ccoal, C(Pcoal))
+  _A = A(Pcoal)
+  append!(Acoal, _A)
+  append!(Ccoal, C(Pcoal, _A))
 end
 dfcoal = to_mean_dataframe(Acoal, Ccoal)
 
@@ -18,10 +19,22 @@ Abd = Int[]
 Cbd = Int[]
 @time for _ in 1:50
   global Pbd = birthdeath(1, ceil(Int, 1/(1-d))*n, d; N=0)
-  append!(Abd, A(Pbd))
-  append!(Cbd, C(Pbd))
+  _A = A(Pbd)
+  append!(Abd, _A)
+  append!(Cbd, C(Pbd, _A))
 end
 dfbd = to_mean_dataframe(Abd,Cbd)
+
+## Aggregate A,C over multiple fluctuating_coalescent runs.
+Afc = Int[]
+Cfc = Int[]
+@time for _ in 1:5
+  global Pfc = fluctuating_coalescent(n)
+  _A = A(Pfc)
+  append!(Afc, _A)
+  append!(Cfc, C(Pfc, _A))
+end
+dffc = to_mean_dataframe(Afc,Cfc)
 
 ## Comparison: unbalanced tree C~A*lnA
 Punbalanced  = maximally_unbalanced(n÷2)
@@ -48,6 +61,9 @@ begin
   p11 = Makie.scatter!(ax, Aunb, Cunb./Aunb,
     label="Unbalanced", markersize=10, marker=:circle
   )
+  p14 = Makie.scatter!(ax, dffc.a, dffc.covera,
+    label="Fluc. Coal.", markersize=10, marker=:circle
+  )
   p21 = Makie.scatter!(ax2, Ab, Cb./Ab,
     label="Balanced", markersize=10, marker=:star5,
     color=colors[3]
@@ -63,10 +79,10 @@ begin
   p12 = Makie.lines!(ax,  1..1e2, A->A/4+1-1/4/A, label="A")
   p13 = Makie.lines!(ax,  1..1e4, A->A^(η-1), label="A^$(η-1)", color=:black, linestyle=:dash)
   p24 = Makie.lines!(ax2, 1..1e4, A->A^0.5, label="A^0.5", color=:black, linestyle=:dash)
-  p25 = Makie.lines!(ax2, 1..1e4, A->1/A+(A+1)/A*(log(A+1)/log(2)-1), label="A logA")
+  p25 = Makie.lines!(ax2, 1..1e4, A->1/A+(A+1)/A*(log(A+1)/log(2)-1), label="logA")
   
-  Legend(fig[2,1], ax,  orientation=:horizontal, tellheight=true)
-  Legend(fig[2,2], ax2, orientation=:horizontal, tellheight=true, tellwidth=true)
+  Legend(fig[2,1], ax,  nbanks=2, orientation=:horizontal, tellheight=true)
+  Legend(fig[2,2], ax2, nbanks=2, orientation=:horizontal, tellheight=true, tellwidth=true)
   colsize!(fig.layout, 1, Relative(1/2))
   colsize!(fig.layout, 2, Relative(1/2))
 
