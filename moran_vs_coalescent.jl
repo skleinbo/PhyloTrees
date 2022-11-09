@@ -42,35 +42,24 @@ end
 ## Phylogenetic Observables
 ## TODO: Make this simpler
 function A(P::SimpleDiGraph, a=fill(0, nv(P)), maxiter=100000)
-    leaves = filter(n -> isleaf(P, n), vertices(P))
-    ready = falses(size(a))
-    a[leaves] .= 0
-    ready[leaves] .= true
-
-    _bothready(v) = bothready(P, ready, v)
-    i = findfirst(_bothready, eachindex(ready))
-    iter = 0
-    while !isnothing(i) && iter < maxiter
-        c = children(P, i)
-        a[i] += a[c[1]] + a[c[2]] + 2
-        ready[i] = true
-        ready[c] .= false
-        i = findfirst(_bothready, eachindex(ready))
-        iter += 1
+    for v in vertices(P)
+        p = parent(P, v)
+        while !isnothing(p)
+            a[p] += 1
+            p = parent(P, p)
+        end
     end
-    iter >= maxiter && @warn("maxiter reached.")
-
     return a .+ 1
 end
 
 function C(P::SimpleDiGraph, a=A(P))
     c = copy(a)
     for v in vertices(P)
-        children = neighborhood(P, v, nv(P), dir=:in) # find all children
-        popfirst!(children) # remove v itself
-        isempty(children) && continue
-        # dists = dist.(Ref(P), children, v)
-        @views c[v] = sum(a[children]) + a[v]
+        p = parent(P, v)
+        while !isnothing(p)
+            c[p] += a[v]
+            p = parent(P, p)
+        end
     end
     return c
 end
