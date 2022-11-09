@@ -62,7 +62,7 @@ begin
   p4 = Makie.lines!(ax, 1..100,A->A/4+1-1/4/A, label="A")
   p5 = Makie.lines!(ax, 1..1e4,x->x^(η-1), label="A^$(η-1)", color=:black, linestyle=:dash)
   p6 = Makie.lines!(ax2, 1..1e4, x->x^0.5, label="A^0.5", color=:black, linestyle=:dash)
-  p6 = Makie.lines!(ax2, 1..1e4, A->1/A+(A+1)/A*(log(A+1)/log(2)-1))
+  p6 = Makie.lines!(ax2, 1..1e4, A->1/A+(A+1)/A*(log(A+1)/log(2)-1), label="A logA")
   # br = fig[2,1:2] = GridLayout()
   # linkyaxes!(ax,ax2)
   Legend(fig[2,1], ax, orientation=:horizontal, tellheight=true)
