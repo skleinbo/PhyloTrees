@@ -1,5 +1,7 @@
 include("moran_vs_coalescent.jl")
 
+using GLMakie, GraphMakie, NetworkLayout
+
 ## -- Test -- ##
 ## Run a small simulation and plot the tree twice side by side 
 ## annotated with A and C respectively.

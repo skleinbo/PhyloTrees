@@ -1,6 +1,6 @@
 include("moran_vs_coalescent.jl")
 
-n = 2^12
+using GLMakie
 d = 0.975
 
 ## Aggregate A,C over multiple coalescent runs.
