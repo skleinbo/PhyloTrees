@@ -1,67 +1,61 @@
-import Pkg
-Pkg.activate(@__DIR__)
-Pkg.instantiate()
-
+import AbstractTrees: children, Leaves, nodevalue, parent, print_tree, PreOrderDFS, PostOrderDFS
 import Base: coalesce
 using DataFrames
-using GLMakie, GraphMakie, NetworkLayout
-using Graphs
 using StatsBase
 
-children(P::SimpleDiGraph, v) = inneighbors(P, v)
-nchildren(P::SimpleDiGraph, v) = length(children(P, v))
-has_children(P, v) = nchildren(P, v) > 0
-isleaf(P, v) = !has_children(P, v)
+include("BinaryTrees.jl")
+using .BinaryTrees
 
-"Return the parent vertex of `v` in a tree `P`, or `nothing` if `v` is the root"
-function parent(P::SimpleDiGraph, v)
-    on = outneighbors(P, v)
-    if isempty(on)
-        return nothing
-    end
-    return on[1]
-end
-
-"Distance between a node `i` and its parent `j` on tree `P`."
-function dist(P, i, j)
+"Distance between a node `i` and its ancestor `j` on a tree."
+function dist(i, j)
     d = 0
     while i != j
-        i = parent(P, i)
+        i = parent(i)
         isnothing(i) && throw(ErrorException("$i is not a descendent of $j."))
         d += 1
     end
     return d
 end
 
-"Helper function for `A`"
-function bothready(P, ready, v)
-    c = children(P, v)
-    return !isempty(c) && ready[c[1]] && ready[c[2]]
-end
-
 ## Phylogenetic Observables
-## TODO: Make this simpler
-function A(P::SimpleDiGraph, a=fill(0, nv(P)), maxiter=100000)
-    for v in vertices(P)
-        p = parent(P, v)
-        while !isnothing(p)
-            a[p] += 1
-            p = parent(P, p)
-        end
+
+function empty!(P::BinaryTree{Vector{T}}) where {T}
+    for v::BinaryTree{Vector{T}} in PreOrderDFS(P)
+        v.val::Vector{T} .= zero(T)
     end
-    return a .+ 1
+    nothing
 end
 
-function C(P::SimpleDiGraph, a=A(P))
-    c = copy(a)
-    for v in vertices(P)
-        p = parent(P, v)
+function A!(P::BinaryTree{Vector{Int}})
+    for v::BinaryTree{Vector{Int}} in PreOrderDFS(P)
+        v.val[1] += 1
+        p = parent(v)
         while !isnothing(p)
-            c[p] += a[v]
-            p = parent(P, p)
+            p.val[1] += 1
+            p = parent(p)
         end
     end
-    return c
+    return P
+end
+
+function C!(P::BinaryTree{Vector{Int}})
+    empty!(P)
+    A!(P)
+    for v::BinaryTree{Vector{Int}} in PreOrderDFS(P)
+        v.val[2] += v.val[1]
+        p = parent(v)
+        while !isnothing(p)
+            p.val[2] += v.val[1]
+            p = parent(p)
+        end
+    end
+    return P
+end
+
+function treevalues!(P::BinaryTree{Vector{T}}) where {T}
+    C!(P)
+    V = map(x -> x.val, PreOrderDFS(P))
+    return ntuple(i -> getindex.(V, i), length(V[1]))
 end
 
 """
@@ -70,19 +64,24 @@ Simulate the coalescent process for n genes.
 Return a directed graph with edges pointing towards the root.
 """
 function coalescent(n)
-    P = SimpleDiGraph(n)
-    V = collect(1:n) # start with n vertices
-    while length(V) > 1
-        i, j = sample(eachindex(V), 2, replace=false) #sample two distinct vertices to coalesce
-        add_vertex!(P) # introduce ancestral node
-        v = nv(P) # index of newly added node
-        add_edge!(P, V[i], v) # connect samples nodes to parental node
-        add_edge!(P, V[j], v)
-        deleteat!(V, sort([i, j])) # remove coalesced nodes from list of "active" node
+    P = [BinaryTree([0, 0]) for _ in 1:n] # start with n vertices; store A,C
+    while n > 1
+        i, j = sample(1:n, 2, replace=false, ordered=true) #sample two distinct vertices to coalesce
+        @inbounds l, r = P[i], P[j]
+        v = BinaryTree([0, 0]) # newly added parental node
+        v.left = l # connect sampled nodes to parental node
+        v.right = r
+        l.parent = v
+        r.parent = v
 
-        push!(V, v) # mark new node as active
+        # replace nodes i,j in active nodes list with
+        # new node and current last node.
+        # shorten list of admissible draws by one.
+        P[i] = v
+        P[j] = P[n]
+        n -= 1
     end
-    P
+    return P[1]
 end
 
 ## Forwards Moran process ##
@@ -111,122 +110,26 @@ function moran(n, T)
 end
 
 """
-  Helper function to `find_ancestry`.
-  
-  Introduce a new vertex, and connect i and j to it.
-  Unless i=-1 in which case only j is connected.
-"""
-function coalesce(P::SimpleDiGraph, i, j)
-    add_vertex!(P)
-    v = nv(P)
-    i != -1 && add_edge!(P, i, v)
-    add_edge!(P, j, v)
-    return v
-end
-
-"""
-  Construct an ancestral tree from a list of moves.
-
-  Lineages that die out are automatically pruned.
-
-  Return a tree with the MRCAs as roots.
-"""
-function find_ancestry(n, moves)
-    P = SimpleDiGraph(n)
-    current_gen = collect(1:n)
-    active = n
-    for (i, j) in Iterators.reverse(moves)
-        active == 1 && break
-        current_gen[j] == -1 && continue
-        if current_gen[i] == -1
-            active += 1
-            current_gen[i] = current_gen[j]
-        else
-            newv = coalesce(P, current_gen[i], current_gen[j])
-            current_gen[i] = newv
-        end
-        current_gen[j] = -1
-        active -= 1
-    end
-
-    return P
-end
-
-"""
   Construct a Yule tree with `n` tips.
 
   At each time step a bifurcation event happens at any of the
   current tips with equal probability.
 """
 function yule(n)
-    P = SimpleDiGraph(1)
-    leaves = [1]
+    P = [BinaryTree([0, 0])]
     k = 1
-    while k < n
-        i = rand(eachindex(leaves))
-        v = leaves[i]
-        add_vertex!(P)
-        add_vertex!(P)
-        v1, v2 = last(vertices(P), 2)
-        add_edge!(P, v1, v)
-        add_edge!(P, v2, v)
-        deleteat!(leaves, i)
-        append!(leaves, [v1, v2])
+    while length(P) - k + 1 < n
+        i = rand(k:lastindex(P))
+        v = P[i]
+        l = left!(v, [0, 0])
+        r = right!(v, [0, 0])
+        append!(P, (l, r))
+        P[i] = P[k]
+
         k += 1
     end
-    P
+    P[1]
 end
-
-"""
-  deletevertex!(P, vert, i)
-
-  Helper function for `birth_death`.
-  
-  Deletes vertex `vert[i]` and its parent, and connects the now
-  lose subtree back to the tree.
- 
-  # Explanation:
-  Removing a vertex from an ancestral tree renders
-  its parental node superflous. We remove it as well, taking
-  care to connect the other child node to the grandparent node if
-  it exists.
-
-  `vert` is a list of references to some (all) vertices in `P`. When removing a 
-  vertex from `P`, vertices get renumbered and the references become 
-  invalid. This is corrected by keeping track of the renumbering and updating `vert`
-  accordingly.
-"""
-function deletevertex!(P, vert, i)
-    v = vert[i]
-    p = parent(P, v)
-    pp = nothing
-    if !isnothing(p)
-        pp = parent(P, p)
-        if !isnothing(pp)
-            c = children(P, p)
-            c = c[1] == v ? c[2] : c[1]
-            add_edge!(P, c, pp)
-        end
-        lastv = nv(P)
-        ilastv = findfirst(==(lastv), vert)
-        if !isnothing(ilastv)
-            vert[ilastv] = p
-        end
-        if v == lastv
-            v = p
-            i = ilastv
-        end
-        rem_vertex!(P, p)
-    end
-    lastv = nv(P)
-    ilastv = findfirst(==(lastv), vert)
-    if !isnothing(ilastv)
-        vert[ilastv] = v
-    end
-    rem_vertex!(P, v)
-    deleteat!(vert, i)
-end
-
 
 """
   birthdeath(n, T, d, b=1.0; N=0)
@@ -240,46 +143,49 @@ end
 
   Lineages that die out are pruned automatically.
 
-  Return an ancestral tree.
+  Return an ancestral tree, or a vector of trees if the process hasn't coalesced.
 """
 function birthdeath(n, T, d, b=1.0; N=0)
-    P = SimpleDiGraph(n)
+    P = [BinaryTree([0, 0]) for _ in 1:n]
     t = 1
-    leaves = collect(vertices(P))
-    N > 0 && sizehint!(leaves, N)
-    while t <= T && (N == 0 || length(leaves) < N)
-        isempty(leaves) && break
-        i = rand(eachindex(leaves))
+    N > 0 && sizehint!(P, N)
+    k = 1
+    while t <= T && (N == 0 || length(P) - k + 1 < N)
+        k > length(P) && break
         if rand() < b
-            add_vertex!(P)
-            add_vertex!(P)
-            v1, v2 = last(vertices(P), 2)
-            add_edge!(P, v1, leaves[i])
-            add_edge!(P, v2, leaves[i])
-            insert!(leaves, i + 1, v1)
-            insert!(leaves, i + 2, v2)
-            deleteat!(leaves, i)
+            i = rand(k:lastindex(P))
+            v = P[i]
+            l = left!(v, [0, 0])
+            r = right!(v, [0, 0])
+            push!(P, r)
+            P[i] = l
         end
-        j = rand(eachindex(leaves))
         if rand() < d # die
-            deletevertex!(P, leaves, j)
+            j = rand(k:lastindex(P))
+            w = P[j]
+            P[j] = P[k]
+            k += 1
+
+            p = parent(w)
+            if !isnothing(p)
+                pp = parent(p)
+                sib = sibling(w)
+                if !isnothing(pp)
+                    if pp.left === p
+                        pp.left = sib
+                    else
+                        pp.right = sib
+                    end
+                    sib.parent = pp
+                else
+                    sib.parent = nothing
+                end
+            end
         end
         t += 1
     end
 
-    ## Because the root is generally not vertex no. 1, shuffle it there.
-    ## Needed in conjunction with GraphMakie and Buchheim tree layout.
-    root = findfirst(v -> isnothing(parent(P, v)), vertices(P))
-
-    M = adjacency_matrix(P)
-    tmp = M[1, :]
-    M[1, :] .= M[root, :]
-    M[root, :] .= tmp
-    tmp = M[:, 1]
-    M[:, 1] .= M[:, root]
-    M[:, root] .= tmp
-
-    return SimpleDiGraph(M)
+    return union(AbstractTrees.getroot.(P[k:end]))
 end
 
 """
@@ -290,80 +196,41 @@ end
 
   See also: @ref(`birth_death`)
 """
-function moran2(n, T)
-    P = SimpleDiGraph(n)
-    t = 1
-    # moves = Vector{Tuple{Int,Int}}(undef, T)
-    pop = collect(1:n)
-    vert = collect(vertices(P))
-    while t <= T
-        isempty(vert) && break
-        i = rand(eachindex(vert))
-        # insert!(pop, i+1, pop[i])
-        add_vertex!(P)
-        add_vertex!(P)
-        v1, v2 = last(vertices(P), 2)
-        add_edge!(P, v1, vert[i])
-        add_edge!(P, v2, vert[i])
-        insert!(vert, i + 1, v1)
-        insert!(vert, i + 2, v2)
-        deleteat!(vert, i)
-        # moves[t] = (i,i+1)
-
-        deletevertex!(P, vert, rand(eachindex(vert)))
-        t += 1
-    end
-
-    root = findfirst(v -> isnothing(parent(P, v)), vertices(P))
-
-    M = adjacency_matrix(P)
-    tmp = M[1, :]
-    M[1, :] .= M[root, :]
-    M[root, :] .= tmp
-    tmp = M[:, 1]
-    M[:, 1] .= M[:, root]
-    M[:, root] .= tmp
-
-    return SimpleDiGraph(M)
-end
+moran2(n, T) = birthdeath(n, T, 1.0)
 
 """
   Return a fully imbalanced binary tree of given height.
 """
 function maximally_unbalanced(height)
-    P = SimpleDiGraph(1)
+    P = BinaryTree([0, 0])
     h = 0
-    attach_to = 1
+    attach_to = P
     while h < height
-        add_vertex!(P)
-        add_vertex!(P)
-        v1, v2 = last(vertices(P), 2)
-        add_edge!(P, v1, attach_to)
-        add_edge!(P, v2, attach_to)
-        attach_to = v1
+        right!(attach_to, [0, 0])
+        attach_to = left!(attach_to, [0,0])
         h += 1
     end
-    P
+
+    return P
 end
 
 """
   Return a fully balanced binary tree of given height.
 """
 function maximally_balanced(height)
-    P = SimpleDiGraph(1)
+    P = [BinaryTree([0, 0])]
+    root = P[1]
     h = 1
-    attach_to = [1]
+    n = 1
     while h < height
-        v = popfirst!(attach_to)
-        add_vertex!(P)
-        add_vertex!(P)
-        v1, v2 = last(vertices(P), 2)
-        add_edge!(P, v1, v)
-        add_edge!(P, v2, v)
-        append!(attach_to, [v1, v2])
-        h = log2(nv(P) + 1)
+        attach_to = popfirst!(P)
+        push!(P, left!(attach_to, [0, 0]))
+        push!(P, right!(attach_to, [0, 0]))
+
+        n += 2
+        h = log2(n + 1)
     end
-    P
+    return root
 end
 
 """
@@ -379,32 +246,24 @@ Simulate a "fluctating coalescent" process for n genes.
 
 Return a directed graph with edges pointing towards the root.
 """
-function fluctuating_coalescent(n, v=randn(n).^2)
-    P = SimpleDiGraph(n)
-    V = collect(1:n) # start with n vertices
-    while length(V) > 1
-        i, j = sample(eachindex(V), Weights(v), 2, replace=false) #sample two distinct vertices to coalesce
-        add_vertex!(P) # introduce ancestral node
-        newv = nv(P) # index of newly added node
-        add_edge!(P, V[i], newv) # connect samples nodes to parental node
-        add_edge!(P, V[j], newv)
+function fluctuating_coalescent(n, w=randn(n) .^ 2; default_value=[0, 0])
+    P = [BinaryTree(copy(default_value)) for _ in 1:n]
+    ij = [0,0]
+    while n  > 1
+        # i, j = wsample(1:n, @view(w[1:n]), 2, replace=false, ordered=true) #sample two distinct vertices to coalesce
+        i,j = StatsBase.sample!(1:n, Weights(view(w, 1:n)), ij)
+        l, r = P[i], P[j]
+        v = BinaryTree(copy(default_value))
+        v.left = l
+        v.right = r
+        l.parent = v
+        r.parent = v
 
-        push!(V, newv) # mark new node as active
-        deleteat!(V, sort([i, j])) # remove coalesced nodes from list of "active" node
-
-        push!(v, max(v[i],v[j]))
-        deleteat!(v, sort([i, j])) # remove coalesced nodes from list of "active" node
-        
+        P[i] = v
+        P[j] = P[n]
+        w[i] = max(w[i], w[j])
+        n -= 1
     end
 
-    root = nv(P)
-    M = adjacency_matrix(P)
-    tmp = M[1, :]
-    M[1, :] .= M[root, :]
-    M[root, :] .= tmp
-    tmp = M[:, 1]
-    M[:, 1] .= M[:, root]
-    M[:, root] .= tmp
-
-    return SimpleDiGraph(M)
+    return P[1]
 end

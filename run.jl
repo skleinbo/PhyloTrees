@@ -8,9 +8,9 @@ Acoal = Int[]
 Ccoal = Int[]
 @time for _ in 1:10
   Pcoal = coalescent(n)
-  _A = A(Pcoal)
+  _A, _C = treevalues!(Pcoal)
   append!(Acoal, _A)
-  append!(Ccoal, C(Pcoal, _A))
+  append!(Ccoal, _C)
 end
 dfcoal = to_mean_dataframe(Acoal, Ccoal)
 
@@ -19,32 +19,30 @@ Abd = Int[]
 Cbd = Int[]
 @time for _ in 1:50
   global Pbd = birthdeath(1, ceil(Int, 1/(1-d))*n, d; N=0)
-  _A = A(Pbd)
+  _A, _C = treevalues!(Pbd[1])
   append!(Abd, _A)
-  append!(Cbd, C(Pbd, _A))
+  append!(Cbd, _C)
 end
 dfbd = to_mean_dataframe(Abd,Cbd)
 
 ## Aggregate A,C over multiple fluctuating_coalescent runs.
 Afc = Int[]
 Cfc = Int[]
-@time for _ in 1:5
+@time for _ in 1:100
   global Pfc = fluctuating_coalescent(n)
-  _A = A(Pfc)
+  _A, _C = treevalues!(Pfc)
   append!(Afc, _A)
-  append!(Cfc, C(Pfc, _A))
+  append!(Cfc, _C)
 end
 dffc = to_mean_dataframe(Afc,Cfc)
 
 ## Comparison: unbalanced tree C~A*lnA
 Punbalanced  = maximally_unbalanced(n÷2)
-Aunb = A(Punbalanced)
-Cunb = C(Punbalanced)
+Aunb, Cunb = treevalues!(Punbalanced)
 
 ## Comparison: balanced tree C~A^2
 Pbalanced  = maximally_balanced(log2(n))
-Ab = A(Pbalanced)
-Cb = C(Pbalanced)
+Ab, Cb = treevalues!(Pbalanced)
 
 ## Plots
 begin
