@@ -1,10 +1,19 @@
+module TreeProcesses
+
+export A!, C!, treevalues!, moran, moran2, birthdeath, fluctuating_coalescent, coalescent,
+        maximally_balanced, maximally_unbalanced, to_mean_dataframe, yule
+
+import AbstractTrees
 import AbstractTrees: children, Leaves, nodevalue, parent, print_tree, PreOrderDFS, PostOrderDFS
 import Base: coalesce
 using DataFrames
 using StatsBase
 
-include("BinaryTrees.jl")
-using .BinaryTrees
+# include("BinaryTrees.jl")
+using BinaryTrees
+
+include("WeightedSamplers.jl")
+import .WeightedSamplers: WeightedSampler, sample, adjust_weight!, shorten!
 
 "Distance between a node `i` and its ancestor `j` on a tree."
 function dist(i, j)
@@ -26,30 +35,46 @@ function empty!(P::BinaryTree{Vector{T}}) where {T}
     nothing
 end
 
-function A!(P::BinaryTree{Vector{Int}})
-    for v::BinaryTree{Vector{Int}} in PreOrderDFS(P)
-        v.val[1] += 1
-        p = parent(v)
-        while !isnothing(p)
-            p.val[1] += 1
-            p = parent(p)
-        end
+function leftmostleaf(P::BinaryTree)
+    left = P
+    while !isnothing(left.left)
+        left = left.left
     end
+    return left
+end
+
+function traverse_left_right!(P::BinaryTree{Vector{Int}}, i, agg)
+    ## Setup
+    # 1. find left-most leaf
+    cursor = leftmostleaf(P)
+    # 2. Set A=1
+    cursor.val[i] = 1
+    ## Start loop
+    while cursor!==P
+        # 2. move on up if possible,
+        #    if not return P
+        p = parent(cursor)
+        isnothing(p) && break
+        # 3. If cursor is a right child, calculate A for the parent node
+        #    and move one level up (continue)
+        if isrightchild(cursor)
+            p.val[i] = agg(p)
+            cursor = p
+            continue
+        end
+        cursor = p
+        # 4. traverse to the leftmost leaf of the right subtree and start over
+        cursor = leftmostleaf(cursor.right)
+        cursor.val[i] = 1
+    end
+
     return P
 end
 
+A!(P::BinaryTree{Vector{Int}}) = traverse_left_right!(P, 1, p->(p.left.val[1] + p.right.val[1] + 1))
 function C!(P::BinaryTree{Vector{Int}})
-    empty!(P)
     A!(P)
-    for v::BinaryTree{Vector{Int}} in PreOrderDFS(P)
-        v.val[2] += v.val[1]
-        p = parent(v)
-        while !isnothing(p)
-            p.val[2] += v.val[1]
-            p = parent(p)
-        end
-    end
-    return P
+    traverse_left_right!(P, 2, p->(p.left.val[2] + p.right.val[2] + p.val[1]))
 end
 
 function treevalues!(P::BinaryTree{Vector{T}}) where {T}
@@ -246,12 +271,12 @@ Simulate a "fluctating coalescent" process for n genes.
 
 Return a directed graph with edges pointing towards the root.
 """
-function fluctuating_coalescent(n, w=randn(n) .^ 2; default_value=[0, 0])
+function fluctuating_coalescent(n, w=randn(n).^2; default_value=[0, 0], fuse=max)
     P = [BinaryTree(copy(default_value)) for _ in 1:n]
-    ij = [0,0]
+    ws = WeightedSampler(w)
+    # ij = (0,0)
     while n  > 1
-        # i, j = wsample(1:n, @view(w[1:n]), 2, replace=false, ordered=true) #sample two distinct vertices to coalesce
-        i,j = StatsBase.sample!(1:n, Weights(view(w, 1:n)), ij)
+        i, j = sample(ws)
         l, r = P[i], P[j]
         v = BinaryTree(copy(default_value))
         v.left = l
@@ -261,9 +286,12 @@ function fluctuating_coalescent(n, w=randn(n) .^ 2; default_value=[0, 0])
 
         P[i] = v
         P[j] = P[n]
-        w[i] = max(w[i], w[j])
+        adjust_weight!(ws, i, fuse(ws.v[i], ws.v[j]))
+        shorten!(ws, 1)
         n -= 1
     end
 
     return P[1]
 end
+
+end # MODULE
