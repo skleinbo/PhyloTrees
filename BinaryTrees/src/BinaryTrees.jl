@@ -1,6 +1,6 @@
 module BinaryTrees
 
-export adjacency_matrix, BinaryTree, child!, left!, right!, sibling
+export adjacency_matrix, BinaryTree, child!, left!, right!, sibling, isleftchild, isrightchild
 
 import AbstractTrees
 import AbstractTrees: children, nodevalue, parent, ParentLinks, PreOrderDFS, StoredParents
@@ -56,6 +56,9 @@ function sibling(t::BinaryTree)
     length(c) == 2 || return nothing
     return c[1]===t ? c[2] : c[1]
 end
+
+isleftchild(t::BinaryTree)  = !isnothing(parent(t)) && t===parent(t).left
+isrightchild(t::BinaryTree) = !isnothing(parent(t)) && t===parent(t).right
 
 function show(io::IO, ::MIME"text/plain", t::BinaryTree{T}) where T
     print(io, "BinaryTree{$T} $(nodevalue(t)) $(objectid(t)) with $(length(children(t))) children")

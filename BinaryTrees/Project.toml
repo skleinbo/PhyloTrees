@@ -1,0 +1,8 @@
+name = "BinaryTrees"
+uuid = "b5b2f71e-4d2a-452d-9d2b-18613792c179"
+author = "Stephan Kleinboelting <s.kleinboelting@gmail.com>"
+version = "0.1.0"
+
+[deps]
+AbstractTrees = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
+SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
