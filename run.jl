@@ -5,56 +5,94 @@ using JLD2
 using EasyFit
 
 
-power_log_law(x,p) = @. p[1]*x^p[2]*log(x)
-power_law(x,p) = @. p[1]*x^p[2]
-power_law_off(x,p) = @. p[1]*x^p[2] + p[3]
-
-n = 2^20 #4_000_000
+n = 2^19 #4_000_000
 
 ## Aggregate A,C,D over multiple weighted_coalescent runs.
-fuse = (a,b)->a+b
+# fuse = (a,b)->max(0, (a+b)/1)
 stopats = [n÷2]
+αs = [1.0]
 innerruns = 10
 outerruns = 1
 
+# Afc = Int[]
+# Cfc = Int[]
+# Dfc = Int[]
+dffc = DataFrame()
+@time foreach(product(1:outerruns, αs)) do (run, α)
+  fuse = (a,b)->(a+b)*α
+  # empty!(Afc)
+  # empty!(Cfc)
+  # empty!(Dfc)
+  @time Pfc = map(1:innerruns) do iter
+    P = preferential_coalescent(n, ones(n); fuse=fuse, stopat=1)[1]
+    ACD!(P)
+    @show iter
+    P
+  end
+  for stopat in stopats
+    Pslice = mapreduce(vcat, Pfc) do P
+      TreeProcesses.time_slice(P, n-stopat)
+    end
+    obs = TreeProcesses.get_observables(Pslice)
+    df = @views to_mean_dataframe(obs[:, 1], obs[:, 2], obs[:, 3])
+    sort!(df, :A)
+    df.run .= run
+    df.stopat .= stopat
+    df.α .= α
+    select!(df, :stopat, :run, Not([:run, :stopat]))
+    append!(dffc, df)
+  end
+end
+
+## Full tree
 Afc = Int[]
 Cfc = Int[]
 Dfc = Int[]
-dffc = DataFrame()
-foreach(product(stopats, 1:outerruns)) do (stopat, run)
+dffc2 = DataFrame()
+@time foreach(product(1:outerruns, αs)) do (run, α)
+  fuse = (a,b)->(a+b)*α
   empty!(Afc)
   empty!(Cfc)
   empty!(Dfc)
-  @time for iter in 1:innerruns
-    Pfc = preferential_coalescent(n, ones(n); fuse=fuse, stopat=stopat)
-    foreach((ACD!(P) for P in Pfc)) do (k,a,c,d)
-      push!(Afc,last(a))
-      push!(Cfc,last(c))
-      push!(Dfc,last(d))
-    end
-    @show iter
+  @time foreach(1:innerruns) do iter
+    P = preferential_coalescent(n, ones(n); fuse=fuse, stopat=1)[1]
+    _,a,c,d = ACD!(P)
+    append!(Afc, a)
+    append!(Cfc, c)
+    append!(Dfc, d)
   end
-  df = to_mean_dataframe(Afc, Cfc, Dfc)
+  df = @views to_mean_dataframe(Afc, Cfc, Dfc)
   sort!(df, :A)
   df.run .= run
-  df.stopat .= stopat
-  select!(df, :stopat, :run, Not([:run, :stopat]))
-  append!(dffc, df)
+  df.α .= α
+  df.stopat .= 1
+  select!(df, :run, Not([:run]))
+  append!(dffc2, df)
 end
 
-fc_params = combine(groupby(dffc, [:stopat, :run])) do dffc
+fc_params = combine(groupby(dffc, [:stopat, :run, :α])) do dffc
   df = @subset dffc 1e0 .<= :A .<= 2e2
   fcfit_c_pow = fitlinear(log.(df.A), log.(df.covera))
 
-  df = @subset dffc 5e1 .<= :A .<= 2e2
+  df = @subset dffc min(maximum(:A), 1e2) .<= :A .<= 2e2
+  fcfit_d_pow = fitlinear(log.(df.A), log.(df.dovera))
+
+  (cfit=[exp(fcfit_c_pow.b) fcfit_c_pow.a], dfit=[exp(fcfit_d_pow.b) fcfit_d_pow.a])
+end
+
+fc_params2 = combine(groupby(dffc2, [:stopat, :run, :α])) do dffc
+  df = @subset dffc 1e0 .<= :A .<= 2e2
+  fcfit_c_pow = fitlinear(log.(df.A), log.(df.covera))
+
+  df = @subset dffc min(maximum(:A), 1e2) .<= :A .<= 2e2
   fcfit_d_pow = fitlinear(log.(df.A), log.(df.dovera))
 
   (cfit=[exp(fcfit_c_pow.b) fcfit_c_pow.a], dfit=[exp(fcfit_d_pow.b) fcfit_d_pow.a])
 end
 
 ## Aggregate A,C over multiple niche model runs.
-n_niche = 2^20
-maxiters = 1000
+n_niche = n÷2
+maxiters = 1_000
 sigmas = [2.0, 3.0]
 innerruns = 10
 outerruns = 1
@@ -72,13 +110,18 @@ foreach(product(sigmas, 1:outerruns)) do (σ, run)
     iter = 0
     k = 0
     Pnm = nothing
+    # @info σ
     while iter < maxiters && k < n_niche
-      Pnm, k = nichemodel(n_niche, σ; ϵ=0.0)
+      Pnm, _, k = nichemodel(n_niche, σ; ϵ=0.0, excludepruned=true)
       iter += 1
     end
-    iter == maxiters && @warn("Tree could not be generated") || @info "Tree found after $iter iterations"
+    if iter == maxiters
+      @warn("Tree could not be generated")
+    else
+      @info "Tree found after $iter iterations"
+    end
 
-    k,a,c,d = ACD!(Pnm)
+    _,a,c,d = ACD!(Pnm)
     append!(Anm,a)
     append!(Cnm,c)
     append!(Dnm,d)
