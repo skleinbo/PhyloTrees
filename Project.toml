@@ -18,4 +18,4 @@ TreeProcesses = "fe9c5e76-98a0-40b3-a46c-727041eeba4e"
 
 [compat]
 BinaryTrees = "0.2"
-TreeProcesses = "0.1"
+TreeProcesses = "0.2"
